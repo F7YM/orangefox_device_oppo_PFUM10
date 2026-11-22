@@ -155,16 +155,16 @@ OF_FLASHLIGHT_ENABLE := 0
 OF_ENABLE_LEGACY_VIBRATION := 1
 OF_ENABLE_LPTOOLS := 1
 OF_ENABLE_WLAN := 0
-OF_DEFAULT_TIMEZONE := "CST-8"
+OF_DEFAULT_TIMEZONE := CST-8
 OF_QUICK_BACKUP_LIST := /boot;/vendor_boot;/dtbo;
 
 # A/B & Virtual A/B (Recovery-in-Boot)
 FOX_AB_DEVICE := 1
 FOX_VIRTUAL_AB_DEVICE := 1
 OF_AB_DEVICE_WITH_RECOVERY_PARTITION := 0
-FOX_RECOVERY_BOOT_PARTITION := "/dev/block/bootdevice/by-name/boot"
-FOX_RECOVERY_SYSTEM_PARTITION := "/dev/block/mapper/system"
-FOX_RECOVERY_VENDOR_PARTITION := "/dev/block/mapper/vendor"
+FOX_RECOVERY_BOOT_PARTITION := /dev/block/bootdevice/by-name/boot
+FOX_RECOVERY_SYSTEM_PARTITION := /dev/block/mapper/system
+FOX_RECOVERY_VENDOR_PARTITION := /dev/block/mapper/vendor
 
 # Shell & Tools
 FOX_USE_BASH_SHELL := 1

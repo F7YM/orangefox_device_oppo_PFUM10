@@ -163,7 +163,7 @@ jobs:
 
           source build/envsetup.sh
           lunch twrp_PFUM10-bp2a-eng
-          mka -j3 bootimage 2>&1 | tee /tmp/build.log
+          mka -j"$(nproc)" bootimage 2>&1 | tee /tmp/build.log
           kill $BMON_PID 2>/dev/null || true
           trap - EXIT
 
