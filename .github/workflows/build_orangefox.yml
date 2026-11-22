@@ -1,0 +1,162 @@
+name: Build OrangeFox Recovery (PFUM10 / fox_16.0)
+
+on:
+  workflow_dispatch:
+    inputs:
+      maintainer:
+        description: 'OF_MAINTAINER name'
+        required: false
+        default: 'F7YM'
+      build_type:
+        description: 'FOX_BUILD_TYPE (Unofficial / Beta / Stable)'
+        required: false
+        default: 'Unofficial'
+      debug_messages:
+        description: 'Enable FOX_BUILD_DEBUG_MESSAGES=1'
+        required: false
+        type: boolean
+        default: false
+      create_release:
+        description: 'Publish artifacts to a GitHub Release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout device tree
+        uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Setup swap and workspace
+        run: |
+          df -h
+          sudo mkdir -p /work/fox_16.0
+          sudo chown -R "$USER:$USER" /work
+          if [ -d /mnt ]; then
+            sudo fallocate -l 10G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=10240
+            sudo chmod 600 /mnt/swapfile
+            sudo mkswap /mnt/swapfile
+            sudo swapon /mnt/swapfile
+          fi
+          free -h
+          df -h
+
+      - name: Install build dependencies and repo tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl flex g++-multilib gcc-multilib \
+            git git-lfs gnupg gperf imagemagick jq libarchive-tools \
+            lib32ncurses-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool \
+            libncurses-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
+            python-is-python3 rsync schedtool squashfs-tools xsltproc zip zlib1g-dev zstd
+          sudo curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo
+          sudo chmod a+rx /usr/local/bin/repo
+          git config --global user.name "OrangeFox Builder"
+          git config --global user.email "builder@users.noreply.github.com"
+          git config --global color.ui false
+          git lfs install
+
+      - name: Sync OrangeFox fox_16.0 manifest
+        working-directory: /work/fox_16.0
+        run: |
+          repo init --depth=1 -u https://gitlab.com/OrangeFox/Manifest.git -b fox_16.0
+          for attempt in 1 2; do
+            echo "=== repo sync attempt $attempt ==="
+            if repo sync -c -j"$(nproc)" --force-sync --no-clone-bundle --no-tags --optimized-fetch; then
+              break
+            fi
+            [ "$attempt" -eq 2 ] && exit 1
+            sleep 15
+          done
+          echo "=== Disk usage after sync ==="
+          df -h
+          echo "=== Removing .repo to reclaim disk space for build ==="
+          rm -rf .repo
+          find . -maxdepth 5 -name .git -type l -delete
+          df -h
+
+      - name: Copy PFUM10 device tree
+        run: |
+          mkdir -p /work/fox_16.0/device/oppo/PFUM10
+          rsync -a --exclude='.git' --exclude='.github' "$GITHUB_WORKSPACE/" /work/fox_16.0/device/oppo/PFUM10/
+          ls -la /work/fox_16.0/device/oppo/PFUM10/
+          sha256sum /work/fox_16.0/device/oppo/PFUM10/prebuilt/Image
+
+      - name: Build OrangeFox bootimage
+        shell: bash
+        working-directory: /work/fox_16.0
+        env:
+          INPUT_MAINTAINER: ${{ github.event.inputs.maintainer }}
+          INPUT_BUILD_TYPE: ${{ github.event.inputs.build_type }}
+          INPUT_DEBUG: ${{ github.event.inputs.debug_messages }}
+        run: |
+          set -o pipefail
+          source device/oppo/PFUM10/vendorsetup.sh
+          export OF_MAINTAINER="${INPUT_MAINTAINER:-F7YM}"
+          export FOX_BUILD_TYPE="${INPUT_BUILD_TYPE:-Unofficial}"
+          if [ "$INPUT_DEBUG" = "true" ]; then
+            export FOX_BUILD_DEBUG_MESSAGES=1
+          fi
+          export FOX_BUILD_DEVICE="PFUM10"
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+
+          source build/envsetup.sh
+          lunch twrp_PFUM10-bp2a-eng
+          mka -j"$(nproc)" bootimage 2>&1 | tee /tmp/build.log
+
+      - name: Collect outputs
+        if: always()
+        run: |
+          mkdir -p /tmp/artifacts
+          [ -f /tmp/build.log ] && cp /tmp/build.log /tmp/artifacts/build.log
+          OUT_DIR="/work/fox_16.0/out/target/product/PFUM10"
+          if [ -d "$OUT_DIR" ]; then
+            ls -lh "$OUT_DIR" | head -60
+            for f in "$OUT_DIR"/boot.img "$OUT_DIR"/OrangeFox-*.zip "$OUT_DIR"/OrangeFox-*.img; do
+              [ -f "$f" ] && cp -v "$f" /tmp/artifacts/
+            done
+          fi
+          cd /tmp/artifacts
+          sha256sum * > SHA256SUMS.txt || true
+          ls -lh /tmp/artifacts
+          df -h
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrangeFox-PFUM10-fox16-${{ github.run_number }}
+          path: /tmp/artifacts/*
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: success() && github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fox16-r${{ github.run_number }}
+          name: OrangeFox fox_16.0 PFUM10 (Build #${{ github.run_number }})
+          files: |
+            /tmp/artifacts/boot.img
+            /tmp/artifacts/OrangeFox-*.zip
+            /tmp/artifacts/OrangeFox-*.img
+            /tmp/artifacts/SHA256SUMS.txt

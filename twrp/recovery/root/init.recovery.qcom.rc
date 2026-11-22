@@ -1,0 +1,17 @@
+on init
+    write /sys/class/backlight/panel0-backlight/brightness 1024
+
+on fs
+    export LD_LIBRARY_PATH /system/lib64:/vendor/lib64:/vendor/lib64/hw:/system_ext/lib64
+    wait /dev/block/platform/soc/${ro.boot.bootdevice}
+    symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
+    start vendor.boot-hal-1-1
+
+on boot
+    setprop sys.usb.config adb
+
+on property:twrp.modules.loaded=true
+    mkdir /firmware
+    mount vfat /dev/block/bootdevice/by-name/modem${ro.boot.slot_suffix} /firmware ro
+    write /sys/kernel/boot_adsp/boot 1
+    umount /firmware

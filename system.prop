@@ -1,0 +1,3 @@
+# Recovery debugging & battery properties
+ro.adb.secure=0
+ro.charger.enable_suspend=1
