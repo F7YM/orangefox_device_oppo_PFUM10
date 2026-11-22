@@ -103,8 +103,8 @@ jobs:
           rm -rf .repo device/xiaomi prebuilts/bazel/darwin-x86_64
           find . -maxdepth 5 -name .git -type l -delete
           df -h
-          echo "=== Creating 24 GiB swapfile for Android 16 Soong ==="
-          sudo fallocate -l 24G /work/swapfile || sudo dd if=/dev/zero of=/work/swapfile bs=1M count=24576
+          echo "=== Creating 16 GiB swapfile for Android 16 Soong ==="
+          sudo fallocate -l 16G /work/swapfile || sudo dd if=/dev/zero of=/work/swapfile bs=1M count=16384
           sudo chmod 600 /work/swapfile
           sudo mkswap /work/swapfile
           sudo swapon /work/swapfile
