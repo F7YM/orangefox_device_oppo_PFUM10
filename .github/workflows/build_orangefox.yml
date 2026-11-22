@@ -45,19 +45,15 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Setup swap and workspace
+      - name: Setup workspace and protect runner from OOM
         run: |
           df -h
           sudo mkdir -p /work/fox_16.0
           sudo chown -R "$USER:$USER" /work
-          if [ -d /mnt ]; then
-            sudo fallocate -l 10G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=10240
-            sudo chmod 600 /mnt/swapfile
-            sudo mkswap /mnt/swapfile
-            sudo swapon /mnt/swapfile
-          fi
+          for p in $(pgrep -f 'Runner\.(Worker|Listener)' || true); do
+            echo -1000 | sudo tee "/proc/$p/oom_score_adj" >/dev/null || true
+          done
           free -h
-          df -h
 
       - name: Install build dependencies and repo tool
         run: |
@@ -103,17 +99,34 @@ jobs:
           trap - EXIT
           echo "=== Disk usage after sync ==="
           df -h
-          echo "=== Removing .repo to reclaim disk space for build ==="
-          rm -rf .repo
+          echo "=== Removing .repo and unused reference trees to reclaim disk space ==="
+          rm -rf .repo device/xiaomi prebuilts/bazel/darwin-x86_64
           find . -maxdepth 5 -name .git -type l -delete
           df -h
+          echo "=== Creating 24 GiB swapfile for Android 16 Soong ==="
+          sudo fallocate -l 24G /work/swapfile || sudo dd if=/dev/zero of=/work/swapfile bs=1M count=24576
+          sudo chmod 600 /work/swapfile
+          sudo mkswap /work/swapfile
+          sudo swapon /work/swapfile
+          sudo sysctl -w vm.swappiness=60 || true
+          free -h
+          df -h
 
-      - name: Copy PFUM10 device tree
+      - name: Copy PFUM10 device tree and tune Soong GC
         run: |
           mkdir -p /work/fox_16.0/device/oppo/PFUM10
           rsync -a --exclude='.git' --exclude='.github' "$GITHUB_WORKSPACE/" /work/fox_16.0/device/oppo/PFUM10/
           ls -la /work/fox_16.0/device/oppo/PFUM10/
           sha256sum /work/fox_16.0/device/oppo/PFUM10/prebuilt/Image
+          python3 - <<'PYEOF'
+          p = "/work/fox_16.0/build/soong/ui/build/soong.go"
+          s = open(p).read()
+          needle = 'invocationEnv := make(map[string]string)'
+          assert needle in s, "invocationEnv not found in soong.go"
+          patch = needle + '\n\tinvocationEnv["GOGC"] = "30"\n\tinvocationEnv["GOMEMLIMIT"] = "13GiB"'
+          open(p, "w").write(s.replace(needle, patch, 1))
+          print("Patched soong.go with GOGC=30, GOMEMLIMIT=13GiB")
+          PYEOF
 
       - name: Build OrangeFox bootimage
         shell: bash
@@ -133,10 +146,26 @@ jobs:
           export FOX_BUILD_DEVICE="PFUM10"
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
+          export GOGC=30
+          export GOMEMLIMIT=13GiB
+          export JAVA_TOOL_OPTIONS="-Xmx4g"
+
+          (
+            while true; do
+              sleep 60
+              mem=$(free -h | awk 'NR==2 {print "RAM:" $3 "/" $2} NR==3 {print "Swap:" $3 "/" $2}' | tr '\n' ' ')
+              dsk=$(df -h / | awk 'NR==2 {print "Disk:" $3 "/" $2 "(free " $4 ")"}')
+              echo "[build monitor $(date +%H:%M:%S)] $mem $dsk"
+            done
+          ) &
+          BMON_PID=$!
+          trap 'kill $BMON_PID 2>/dev/null || true' EXIT
 
           source build/envsetup.sh
           lunch twrp_PFUM10-bp2a-eng
-          mka -j"$(nproc)" bootimage 2>&1 | tee /tmp/build.log
+          mka -j3 bootimage 2>&1 | tee /tmp/build.log
+          kill $BMON_PID 2>/dev/null || true
+          trap - EXIT
 
       - name: Collect outputs
         if: always()
