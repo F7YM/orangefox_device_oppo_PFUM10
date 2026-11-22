@@ -77,16 +77,30 @@ jobs:
 
       - name: Sync OrangeFox fox_16.0 manifest
         working-directory: /work/fox_16.0
+        env:
+          GIT_TERMINAL_PROMPT: '0'
         run: |
           repo init --depth=1 -u https://gitlab.com/OrangeFox/Manifest.git -b fox_16.0
+          (
+            while true; do
+              sleep 30
+              used=$(df -h / | awk 'NR==2 {print $3 "/" $2 " (free " $4 ")"}')
+              objs=$(find .repo/projects -name '*.git' 2>/dev/null | wc -l)
+              echo "[sync progress $(date +%H:%M:%S)] disk=$used projects=$objs"
+            done
+          ) &
+          MON_PID=$!
+          trap 'kill $MON_PID 2>/dev/null || true' EXIT
           for attempt in 1 2; do
             echo "=== repo sync attempt $attempt ==="
-            if repo sync -c -j"$(nproc)" --force-sync --no-clone-bundle --no-tags --optimized-fetch; then
+            if repo sync -c -j16 --force-sync --no-clone-bundle --no-tags --optimized-fetch; then
               break
             fi
             [ "$attempt" -eq 2 ] && exit 1
             sleep 15
           done
+          kill $MON_PID 2>/dev/null || true
+          trap - EXIT
           echo "=== Disk usage after sync ==="
           df -h
           echo "=== Removing .repo to reclaim disk space for build ==="
