@@ -167,6 +167,53 @@ jobs:
           kill $BMON_PID 2>/dev/null || true
           trap - EXIT
 
+      - name: Verify Boot v3 header and ramdisk sanity
+        run: |
+          python3 - <<'PYEOF'
+          import hashlib, os, struct
+
+          out_dir = "/work/fox_16.0/out/target/product/PFUM10"
+          boot_img = os.path.join(out_dir, "boot.img")
+          kernel_src = "/work/fox_16.0/device/oppo/PFUM10/prebuilt/Image"
+          rec_root = os.path.join(out_dir, "recovery", "root")
+
+          with open(boot_img, "rb") as f:
+              hdr = f.read(4096)
+              magic = hdr[:8]
+              ksize, rsize, osv, hsz, _, _, _, _, hver = struct.unpack("<9I", hdr[8:44])
+              cmdline = hdr[44:44 + 1536].split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+              f.seek(4096)
+              kdata = f.read(ksize)
+
+          os_ver_raw = osv >> 11
+          os_patch_raw = osv & 0x7ff
+          os_ver = f"{(os_ver_raw >> 14) & 0x7f}.{(os_ver_raw >> 7) & 0x7f}.{os_ver_raw & 0x7f}"
+          os_patch = f"{2000 + (os_patch_raw >> 4):04d}-{os_patch_raw & 0xf:02d}"
+          k_sha = hashlib.sha256(kdata).hexdigest()
+          src_sha = hashlib.sha256(open(kernel_src, "rb").read()).hexdigest()
+
+          print(f"boot.img: magic={magic!r}, hver={hver}, hsz={hsz}, ksize={ksize}, rsize={rsize}")
+          print(f"boot.img: os_version={os_ver}, os_patch_level={os_patch}, cmdline={cmdline!r}")
+          print(f"boot.img: kernel_sha256={k_sha}")
+
+          assert magic == b"ANDROID!", f"Bad magic: {magic!r}"
+          assert hver == 3, f"Expected header_version 3, got {hver}"
+          assert cmdline == "", f"Expected empty cmdline (no twrpfastboot=1), got {cmdline!r}"
+          assert os_ver == "12.0.0", f"Expected os_version 12.0.0, got {os_ver}"
+          assert os_patch == "2023-09", f"Expected os_patch_level 2023-09, got {os_patch}"
+          assert k_sha == src_sha, f"Kernel SHA mismatch: {k_sha} != {src_sha}"
+          assert os.path.isfile(os.path.join(rec_root, "vendor/etc/ueventd.rc")), "Missing /vendor/etc/ueventd.rc"
+          assert not os.path.exists(os.path.join(rec_root, "ueventd.qcom.rc")), "Legacy /ueventd.qcom.rc still present"
+          import glob
+          fox_imgs = glob.glob(os.path.join(out_dir, "OrangeFox-*.img"))
+          assert fox_imgs, "Missing OrangeFox-*.img output"
+          boot_sha = hashlib.sha256(open(boot_img, "rb").read()).hexdigest()
+          for fi in fox_imgs:
+              fi_sha = hashlib.sha256(open(fi, "rb").read()).hexdigest()
+              assert fi_sha == boot_sha, f"{fi} differs from boot.img"
+          print("ALL BOOT HEADER AND RAMDISK SANITY CHECKS PASSED.")
+          PYEOF
+
       - name: Collect outputs
         if: always()
         run: |

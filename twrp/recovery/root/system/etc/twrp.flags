@@ -8,8 +8,7 @@
 /vbmeta_system     emmc    /dev/block/bootdevice/by-name/vbmeta_system                  flags=slotselect;display="VBMeta System";backup=1;flashimg=1
 /vbmeta_vendor     emmc    /dev/block/bootdevice/by-name/vbmeta_vendor                  flags=slotselect;display="VBMeta Vendor";backup=1;flashimg=1
 
-# Metadata & Persist
-/metadata          ext4    /dev/block/by-name/metadata                                  flags=display="Metadata"
+# Persist (/metadata is already defined in recovery.fstab)
 /persist           ext4    /dev/block/bootdevice/by-name/persist                        flags=display="Persist";fsflags=ro
 /persist_image     emmc    /dev/block/bootdevice/by-name/persist                        flags=display="Persist Image";backup=1
 

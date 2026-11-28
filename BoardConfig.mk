@@ -26,9 +26,15 @@ TARGET_USES_REMOTEPROC := true
 
 # Boot / Kernel (Recovery-in-Boot, Boot Header v3, gzip ramdisk)
 BOARD_USES_RECOVERY_AS_BOOT := true
+# PFUM10 has no bootloader fastboot; do NOT inject twrpfastboot=1 into boot.img
+# cmdline or first_stage_init ForceNormalBoot() will always return false and
+# trap the device in recovery.
+TW_NO_FASTBOOT_BOOT := true
 BOARD_BOOT_HEADER_VERSION := 3
 BOARD_KERNEL_PAGESIZE := 4096
-BOARD_MKBOOTIMG_ARGS += --header_version $(BOARD_BOOT_HEADER_VERSION)
+# Match stock boot_a header version/patchlevel so ABL -> Keymaster 4.1 never
+# sees an unintended OS version / patchlevel bump on normal boot.
+BOARD_MKBOOTIMG_ARGS += --header_version $(BOARD_BOOT_HEADER_VERSION) --os_version 12.0.0 --os_patch_level 2023-09
 BOARD_KERNEL_IMAGE_NAME := Image
 TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)/prebuilt/Image
 
@@ -152,7 +158,6 @@ OF_CLOCK_POS := 1
 OF_ALLOW_DISABLE_NAVBAR := 0
 OF_USE_GREEN_LED := 0
 OF_FLASHLIGHT_ENABLE := 0
-OF_ENABLE_LEGACY_VIBRATION := 1
 OF_ENABLE_LPTOOLS := 1
 OF_ENABLE_WLAN := 0
 OF_DEFAULT_TIMEZONE := CST-8
